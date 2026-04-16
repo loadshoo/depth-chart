@@ -5,6 +5,11 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, value));
 }
 
+function formatRangeLabel(price: number, midPrice: number): string {
+  if (!midPrice) return "-";
+  return (Math.abs(price - midPrice) / midPrice * 100).toFixed(2) + "%";
+}
+
 import { AXIS_HEIGHT, FONT_SIZE } from "./drawAxes";
 import {
   drawHorizontalAxis,
@@ -266,14 +271,7 @@ export class DepthChartInteraction extends EventTarget {
         core.resolution,
       );
 
-      let spreadLabel = "";
-      if (state.sell) {
-        const midPrice = core._computedMidPrice;
-        const spreadAmt = Math.abs(state.sell.price - buyDatum.price);
-        spreadLabel = midPrice ? ((spreadAmt / midPrice) * 100).toFixed(2) + "%" : "-";
-      } else {
-        spreadLabel = "-";
-      }
+      const spreadLabel = formatRangeLabel(buyDatum.price, core._computedMidPrice);
 
       drawHoverTooltip(
         ctx,
@@ -335,14 +333,7 @@ export class DepthChartInteraction extends EventTarget {
         core.resolution,
       );
 
-      let spreadLabel = "";
-      if (state.buy) {
-        const midPrice = core._computedMidPrice;
-        const spreadAmt = Math.abs(sellDatum.price - state.buy.price);
-        spreadLabel = midPrice ? ((spreadAmt / midPrice) * 100).toFixed(2) + "%" : "-";
-      } else {
-        spreadLabel = "-";
-      }
+      const spreadLabel = formatRangeLabel(sellDatum.price, core._computedMidPrice);
 
       drawHoverTooltip(
         ctx,
