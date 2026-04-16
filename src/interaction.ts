@@ -13,19 +13,26 @@ import {
   drawOverlayRect,
   drawIndicator,
   drawLabel,
+  drawHoverTooltip,
 } from "./drawAxes";
 import { CanvasRenderer } from "./renderer";
 import type { DepthChartCore } from "./core";
-import type { Colors } from "./types";
-import { bisectCenter, numberToRgb } from "./utils";
+import { numberToRgb } from "./utils";
 
 const OVERLAY_ALPHA = 0.05;
 
+type HoverDatum = {
+  index: number;
+  price: number;
+  volume: number;
+  pixelX: number;
+  pixelY: number;
+};
+
 type HoverState = {
-  buyIndex: number;
-  sellIndex: number;
-  buyPixelX: number;
-  sellPixelX: number;
+  sourceSide: "buy" | "sell";
+  buy: HoverDatum | null;
+  sell: HoverDatum | null;
 } | null;
 
 type AuctionHoverState = {
@@ -53,6 +60,7 @@ export class DepthChartInteraction extends EventTarget {
 
   private hoverState: HoverState = null;
   private auctionHover: AuctionHoverState = null;
+  private lastPointer: { x: number; y: number } | null = null;
 
   // Gesture tracking
   private wheelTimer: ReturnType<typeof setTimeout> | null = null;
@@ -62,6 +70,7 @@ export class DepthChartInteraction extends EventTarget {
 
   private _indicativePrice: number = 0;
   private auctionDelaunay: Delaunay<[number, number]> | null = null;
+  private auctionPoints: [number, number][] = [];
 
   constructor(options: {
     uiCanvas: HTMLCanvasElement;
@@ -98,9 +107,15 @@ export class DepthChartInteraction extends EventTarget {
 
     // Build Delaunay for auction mode
     if (this._indicativePrice && core.prices.length > 1) {
-      const pts = zip(core.prices, core.volumes) as [number, number][];
+      const pts = zip(core.prices, core.volumes)
+        .map(([price, volume]) => [
+          core.priceScale(price),
+          core.volumeScale(volume),
+        ] as [number, number]);
+      this.auctionPoints = pts;
       this.auctionDelaunay = Delaunay.from(pts);
     } else {
+      this.auctionPoints = [];
       this.auctionDelaunay = null;
     }
 
@@ -125,6 +140,10 @@ export class DepthChartInteraction extends EventTarget {
 
     drawMidPriceLine(ctx, core.plotWidth / 2, cssH);
 
+    if (this.lastPointer) {
+      this._processHoverX(this.lastPointer.x, this.lastPointer.y);
+    }
+
     // Hover overlays & tooltips
     if (this._indicativePrice && this.auctionHover) {
       this._renderAuctionHover(ctx, cssW, cssH);
@@ -137,6 +156,7 @@ export class DepthChartInteraction extends EventTarget {
 
   updatePrice(price: number): void {
     const x = this.core.priceScale(price);
+    this.lastPointer = { x, y: 0 };
     this._processHoverX(x, 0);
     this.render();
   }
@@ -144,6 +164,7 @@ export class DepthChartInteraction extends EventTarget {
   clearPrice(): void {
     this.hoverState = null;
     this.auctionHover = null;
+    this.lastPointer = null;
     this.render();
   }
 
@@ -200,11 +221,10 @@ export class DepthChartInteraction extends EventTarget {
     const midX = core.priceScale(core._computedMidPrice);
 
     // Buy side
-    const bIdx = state.buyIndex;
-    if (bIdx >= 0 && bIdx < core.prices.length && core.prices[bIdx] < midX) {
-      const bX = state.buyPixelX;
-      const bVol = core.volumes[bIdx];
-      const bVolY = core.volumeScale(bVol);
+    const buyDatum = state.buy;
+    if (buyDatum) {
+      const bX = buyDatum.pixelX;
+      const bVolY = buyDatum.pixelY;
 
       drawOverlayRect(
         ctx,
@@ -220,11 +240,11 @@ export class DepthChartInteraction extends EventTarget {
 
       drawLabel(
         ctx,
-        core.priceLabels[bIdx] ?? "",
+        core.priceFormat(buyDatum.price),
         clamp(
           bX,
-          (core.priceLabels[bIdx]?.length ?? 0) * 4,
-          midX - (core.priceLabels[bIdx]?.length ?? 0) * 4,
+          core.priceFormat(buyDatum.price).length * 4,
+          midX - core.priceFormat(buyDatum.price).length * 4,
         ),
         cssH - AXIS_HEIGHT / 2 + 3 * core.resolution,
         { x: 0.5, y: 0.5 },
@@ -235,7 +255,7 @@ export class DepthChartInteraction extends EventTarget {
 
       drawLabel(
         ctx,
-        core.volumeLabels[bIdx] ?? "",
+        core.volumeFormat(buyDatum.volume),
         0,
         clamp(bVolY, FONT_SIZE, cssH - AXIS_HEIGHT - FONT_SIZE),
         { x: 0, y: 0.5 },
@@ -244,42 +264,40 @@ export class DepthChartInteraction extends EventTarget {
         core.resolution,
       );
 
-      // % diff label midway between bX and midX
-      const midPrice = core._computedMidPrice;
-      const numPrice = parseFloat(core.priceLabels[bIdx]?.replace(/,/g, "") ?? "0");
-      const pctDiff = midPrice
-        ? (((numPrice - midPrice) / midPrice) * 100).toFixed(2) + "%"
-        : "";
-      if (pctDiff) {
-        drawLabel(
-          ctx,
-          pctDiff,
-          bX + (midX - bX) / 2,
-          clamp(bVolY, FONT_SIZE, cssH - AXIS_HEIGHT - FONT_SIZE),
-          { x: 0.5, y: 0.5 },
-          core.colors.buyStroke,
-          core.colors.backgroundLabel,
-          core.resolution,
-        );
+      let spreadLabel = "";
+      if (state.sell) {
+        const midPrice = core._computedMidPrice;
+        const spreadAmt = Math.abs(state.sell.price - buyDatum.price);
+        spreadLabel = midPrice ? ((spreadAmt / midPrice) * 100).toFixed(2) + "%" : "-";
+      } else {
+        spreadLabel = "-";
       }
+
+      drawHoverTooltip(
+        ctx,
+        core.priceFormat(buyDatum.price),
+        spreadLabel,
+        bX,
+        bVolY,
+        "buy",
+        core.colors.buyStroke,
+        core.colors.backgroundLabel,
+        core.resolution,
+        cssW
+      );
     }
 
     // Sell side
-    const sIdx = state.sellIndex;
-    if (
-      sIdx >= 0 &&
-      sIdx < core.prices.length &&
-      core.prices[sIdx] > core.priceScale.invert(midX)
-    ) {
-      const sX = state.sellPixelX;
-      const sVol = core.volumes[sIdx];
-      const sVolY = core.volumeScale(sVol);
+    const sellDatum = state.sell;
+    if (sellDatum) {
+      const sX = sellDatum.pixelX;
+      const sVolY = sellDatum.pixelY;
 
       drawOverlayRect(
         ctx,
         sX,
         0,
-        cssW - sX,
+        core.plotWidth - sX,
         cssH - AXIS_HEIGHT,
         core.colors.overlay,
         OVERLAY_ALPHA,
@@ -289,11 +307,11 @@ export class DepthChartInteraction extends EventTarget {
 
       drawLabel(
         ctx,
-        core.priceLabels[sIdx] ?? "",
+        core.priceFormat(sellDatum.price),
         clamp(
           sX,
-          midX + (core.priceLabels[sIdx]?.length ?? 0) * 4,
-          cssW - (core.priceLabels[sIdx]?.length ?? 0) * 4,
+          midX + core.priceFormat(sellDatum.price).length * 4,
+          core.plotWidth - core.priceFormat(sellDatum.price).length * 4,
         ),
         cssH - AXIS_HEIGHT / 2 + 3 * core.resolution,
         { x: 0.5, y: 0.5 },
@@ -304,7 +322,7 @@ export class DepthChartInteraction extends EventTarget {
 
       drawLabel(
         ctx,
-        core.volumeLabels[sIdx] ?? "",
+        core.volumeFormat(sellDatum.volume),
         cssW,
         clamp(sVolY, FONT_SIZE, cssH - AXIS_HEIGHT - FONT_SIZE),
         { x: 1, y: 0.5 },
@@ -313,23 +331,27 @@ export class DepthChartInteraction extends EventTarget {
         core.resolution,
       );
 
-      const midPrice = core._computedMidPrice;
-      const numPrice = parseFloat(core.priceLabels[sIdx]?.replace(/,/g, "") ?? "0");
-      const pctDiff = midPrice
-        ? "+" + (((numPrice - midPrice) / midPrice) * 100).toFixed(2) + "%"
-        : "";
-      if (pctDiff) {
-        drawLabel(
-          ctx,
-          pctDiff,
-          midX + (sX - midX) / 2,
-          clamp(sVolY, FONT_SIZE, cssH - AXIS_HEIGHT - FONT_SIZE),
-          { x: 0.5, y: 0.5 },
-          core.colors.sellStroke,
-          core.colors.backgroundLabel,
-          core.resolution,
-        );
+      let spreadLabel = "";
+      if (state.buy) {
+        const midPrice = core._computedMidPrice;
+        const spreadAmt = Math.abs(sellDatum.price - state.buy.price);
+        spreadLabel = midPrice ? ((spreadAmt / midPrice) * 100).toFixed(2) + "%" : "-";
+      } else {
+        spreadLabel = "-";
       }
+
+      drawHoverTooltip(
+        ctx,
+        core.priceFormat(sellDatum.price),
+        spreadLabel,
+        sX,
+        sVolY,
+        "sell",
+        core.colors.sellStroke,
+        core.colors.backgroundLabel,
+        core.resolution,
+        cssW
+      );
     }
   }
 
@@ -337,18 +359,23 @@ export class DepthChartInteraction extends EventTarget {
 
   private _processHoverX(cssX: number, cssY: number): void {
     const core = this.core;
-    if (core.prices.length < 2) return;
+    if (core.prices.length < 2) {
+      this.hoverState = null;
+      this.auctionHover = null;
+      return;
+    }
 
     const midX = core.priceScale(core._computedMidPrice);
 
     if (this._indicativePrice && this.auctionDelaunay) {
       const idx = this.auctionDelaunay.find(cssX, cssY);
-      const d = Math.hypot(cssX - core.prices[idx], cssY - core.volumes[idx]);
+      const point = this.auctionPoints[idx];
+      const d = point ? Math.hypot(cssX - point[0], cssY - point[1]) : Infinity;
       if (d < 50) {
         this.auctionHover = {
           index: idx,
-          pixelX: core.prices[idx],
-          pixelY: core.volumes[idx],
+          pixelX: point[0],
+          pixelY: point[1],
         };
       } else {
         this.auctionHover = null;
@@ -356,43 +383,65 @@ export class DepthChartInteraction extends EventTarget {
       return;
     }
 
-    const nearestIdx = bisectCenter(core.prices, cssX);
-    const nearestX = core.prices[nearestIdx];
+    const hoveredPrice = core.priceScale.invert(clamp(cssX, 0, core.plotWidth));
+    const sourceSide = cssX > midX ? "sell" : "buy";
 
-    let buyIndex: number;
-    let sellIndex: number;
-    let buyX: number;
-    let sellX: number;
-
-    if (cssX > midX) {
-      sellIndex = nearestIdx;
-      sellX = nearestX;
-      buyX = 2 * midX - nearestX;
-      buyIndex =
-        core.prices[0] >= midX
-          ? -1
-          : bisectLeft(core.prices, buyX) - 1;
-    } else {
-      buyIndex = nearestIdx;
-      buyX = nearestX;
-      sellX = 2 * midX - nearestX;
-      sellIndex =
-        core.prices.at(-1)! <= midX
-          ? -1
-          : bisectRight(core.prices, sellX) - 1;
+    if (sourceSide === "buy") {
+      const buy = this._findNearestSideDatum(core.cumulativeBuy, hoveredPrice, core);
+      const sell = buy
+        ? this._findNearestSideDatum(
+            core.cumulativeSell,
+            core._computedMidPrice + (core._computedMidPrice - buy.price),
+            core,
+          )
+        : null;
+      this.hoverState = { sourceSide, buy, sell };
+      return;
     }
 
-    this.hoverState = {
-      buyIndex,
-      sellIndex,
-      buyPixelX: buyX,
-      sellPixelX: sellX,
+    const sell = this._findNearestSideDatum(core.cumulativeSell, hoveredPrice, core);
+    const buy = sell
+      ? this._findNearestSideDatum(
+          core.cumulativeBuy,
+          core._computedMidPrice - (sell.price - core._computedMidPrice),
+          core,
+        )
+      : null;
+    this.hoverState = { sourceSide, buy, sell };
+  }
+
+  private _findNearestSideDatum(
+    points: [number, number][],
+    targetPrice: number,
+    core: DepthChartCore,
+  ): HoverDatum | null {
+    if (points.length === 0) return null;
+
+    let bestIndex = 0;
+    let bestDistance = Infinity;
+
+    for (let index = 0; index < points.length; index += 1) {
+      const distance = Math.abs(points[index][0] - targetPrice);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+
+    const [price, volume] = points[bestIndex];
+    return {
+      index: bestIndex,
+      price,
+      volume,
+      pixelX: core.priceScale(price),
+      pixelY: core.volumeScale(volume),
     };
   }
 
   // ── event binding ─────────────────────────────────────────────────────────
 
   private _bindEvents(canvas: HTMLCanvasElement): void {
+    canvas.addEventListener("pointerenter", this._onPointerEnter);
     canvas.addEventListener("pointermove", this._onPointerMove);
     canvas.addEventListener("pointerleave", this._onPointerLeave);
     canvas.addEventListener("pointerdown", this._onPointerDown);
@@ -403,6 +452,7 @@ export class DepthChartInteraction extends EventTarget {
   }
 
   unbindEvents(canvas: HTMLCanvasElement): void {
+    canvas.removeEventListener("pointerenter", this._onPointerEnter);
     canvas.removeEventListener("pointermove", this._onPointerMove);
     canvas.removeEventListener("pointerleave", this._onPointerLeave);
     canvas.removeEventListener("pointerdown", this._onPointerDown);
@@ -424,6 +474,15 @@ export class DepthChartInteraction extends EventTarget {
   private _onPointerMove = (e: PointerEvent) => {
     if ("ontouchstart" in self) return; // let touch events handle it on touch devices
     const [x, y] = this._cssXY(e);
+    this.lastPointer = { x, y };
+    this._processHoverX(x, y);
+    this.render();
+  };
+
+  private _onPointerEnter = (e: PointerEvent) => {
+    if ("ontouchstart" in self) return;
+    const [x, y] = this._cssXY(e);
+    this.lastPointer = { x, y };
     this._processHoverX(x, y);
     this.render();
   };
@@ -431,12 +490,14 @@ export class DepthChartInteraction extends EventTarget {
   private _onPointerLeave = () => {
     this.hoverState = null;
     this.auctionHover = null;
+    this.lastPointer = null;
     this.render();
   };
 
   private _onPointerDown = (e: PointerEvent) => {
     if (!("ontouchstart" in self)) return;
     const [x, y] = this._cssXY(e);
+    this.lastPointer = { x, y };
     this._processHoverX(x, y);
     this.render();
   };

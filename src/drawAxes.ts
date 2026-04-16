@@ -205,3 +205,68 @@ export function drawLabel(
 
   ctx.restore();
 }
+
+/**
+ * 绘制带有边框和圆角的两行Tooltip卡片，展示当前价格和价差幅度
+ */
+export function drawHoverTooltip(
+  ctx: CanvasRenderingContext2D,
+  priceLabel: string,
+  rangeLabel: string,
+  x: number,
+  y: number,
+  side: "buy" | "sell",
+  color: number,
+  bgColor: number,
+  resolution: number,
+  cssWidth: number,
+): void {
+  ctx.save();
+  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+
+  const text1 = `Price: ${priceLabel}`;
+  const text2 = `Range: ${rangeLabel}`;
+
+  const tw1 = ctx.measureText(text1).width;
+  const tw2 = ctx.measureText(text2).width;
+  const tw = Math.max(tw1, tw2);
+
+  const padX = 8 * resolution;
+  const padY = 6 * resolution;
+  const lineSpacing = 4 * resolution;
+  const rh = FONT_SIZE * 2 + lineSpacing + padY * 2;
+  const rw = tw + padX * 2;
+
+  // 定位逻辑，买单显示在准星右侧，卖单显示在准星左侧
+  let rx = side === "buy" ? x + 12 * resolution : x - rw - 12 * resolution;
+  const ry = y - rh / 2;
+
+  // 边界保护
+  if (rx < 0) rx = 0;
+  if (rx + rw > cssWidth) rx = cssWidth - rw;
+
+  // 背景
+  ctx.fillStyle = numberToRgb(bgColor, 0.9);
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(rx, ry, rw, rh, 4 * resolution);
+  } else {
+    ctx.rect(rx, ry, rw, rh);
+  }
+  ctx.fill();
+
+  // 边框
+  ctx.strokeStyle = numberToRgb(color, 0.6);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // 文本
+  ctx.fillStyle = numberToRgb(color);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(text1, rx + padX, ry + padY);
+  ctx.fillText(text2, rx + padX, ry + padY + FONT_SIZE + lineSpacing);
+
+  ctx.restore();
+}
+

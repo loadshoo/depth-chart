@@ -216,7 +216,7 @@ export default function App() {
             <input
               type="range"
               min="10"
-              max="60"
+              max="600"
               value={levels}
               onChange={(event) => setLevels(Number(event.target.value))}
             />

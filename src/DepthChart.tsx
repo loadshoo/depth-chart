@@ -19,6 +19,10 @@ export const FONT_SIZE = 12;
 /** Height of the bottom price axis in CSS pixels */
 export const AXIS_HEIGHT = FONT_SIZE + 5;
 
+function clamp(value: number, minValue: number, maxValue: number): number {
+  return Math.max(minValue, Math.min(maxValue, value));
+}
+
 function defaultPriceFormat(price: number): string {
   return price.toLocaleString("en-US", { maximumFractionDigits: 5 });
 }
@@ -120,10 +124,15 @@ export const DepthChart = forwardRef<DepthChartHandle, DepthChartProps>(
       let initialSpan = 1;
       interaction.addEventListener("zoomstart", () => {
         initialSpan = core.span;
+        interaction.transform = 1;
+        interaction.scaleExtent = [
+          initialSpan / core.maxSpan,
+          initialSpan / core.minSpan,
+        ];
       });
       interaction.addEventListener("zoom", (e) => {
         const k = (e as CustomEvent<{ k: number }>).detail.k;
-        core.span = initialSpan / k;
+        core.span = clamp(initialSpan / k, core.minSpan, core.maxSpan);
         interaction.render();
       });
 

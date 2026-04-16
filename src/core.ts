@@ -1,4 +1,4 @@
-import { extent, max, mean, min } from "d3-array";
+import { max, mean } from "d3-array";
 import { ScaleLinear, scaleLinear } from "d3-scale";
 
 import { AXIS_HEIGHT, FONT_SIZE } from "./drawAxes";
@@ -12,7 +12,7 @@ import {
   drawMidPriceLine,
 } from "./drawAxes";
 import { CanvasRenderer } from "./renderer";
-import type { Colors, Dimensions, OrderBookData, PriceLevel } from "./types";
+import type { Colors, Dimensions, OrderBookData } from "./types";
 import { cumsum, formatVolume } from "./utils";
 
 // ───────────────────────────────────────────────────────────
@@ -20,6 +20,10 @@ import { cumsum, formatVolume } from "./utils";
 // → treat the extreme price level as an outlier and drop it.
 // ───────────────────────────────────────────────────────────
 const PRICE_VOLUME_RATIO_THRESHOLD = 100;
+
+function clamp(value: number, minValue: number, maxValue: number): number {
+  return Math.max(minValue, Math.min(maxValue, value));
+}
 
 function getMidPrice(
   indicativePrice: number,
@@ -73,6 +77,8 @@ export class DepthChartCore {
 
   public _span: number = 1;
   public initialSpan: number = 1;
+  public minSpan: number = 1;
+  public maxSpan: number = 1;
   private maxPriceDifference: number = 0;
   private initialPriceDifference: number = 0;
 
@@ -223,6 +229,13 @@ export class DepthChartCore {
     this.maxPriceDifference =
       max(this.prices.map((p) => Math.abs(p - midPrice))) ?? 0;
 
+    if (this.maxPriceDifference <= 0) {
+      this.minSpan = 1;
+      this.maxSpan = 1;
+      this._span = 1;
+      return;
+    }
+
     if (!this.initialPriceDifference && this.maxPriceDifference > 0) {
       // Filter outliers to compute the initial view span
       const buyLevels = [...this._data.buy].sort((a, b) => a.price - b.price);
@@ -268,6 +281,20 @@ export class DepthChartCore {
       this.initialSpan = 1;
     }
 
+    const bestBuyDistance = this._data.buy[0]
+      ? Math.abs(this._data.buy[0].price - midPrice)
+      : 0;
+    const bestSellDistance = this._data.sell[0]
+      ? Math.abs(this._data.sell[0].price - midPrice)
+      : 0;
+    const minVisibleHalfRange = Math.max(bestBuyDistance, bestSellDistance, 0);
+
+    this.maxSpan = 1;
+    this.minSpan = minVisibleHalfRange
+      ? Math.min(1, (minVisibleHalfRange * 1.001) / this.maxPriceDifference)
+      : 1;
+    this._span = clamp(this._span || 1, this.minSpan, this.maxSpan);
+
     const halfRange = this._span * this.maxPriceDifference;
     const priceExtent: [number, number] = [
       midPrice - halfRange,
@@ -280,7 +307,11 @@ export class DepthChartCore {
       .filter((d) => d.p >= priceExtent[0] && d.p <= priceExtent[1])
       .map((d) => d.v);
 
-    const maxVol = max(visibleVolumes) ?? 0;
+    const effectiveVisibleVolumes = visibleVolumes.length > 0
+      ? visibleVolumes
+      : this.volumes;
+
+    const maxVol = max(effectiveVisibleVolumes) ?? 0;
     const volumeExtent: [number, number] = [0, 1.2 * maxVol];
 
     const cssH = this.cssHeight;
