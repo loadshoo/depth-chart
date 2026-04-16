@@ -54,6 +54,7 @@ type AuctionHoverState = {
 export class DepthChartInteraction extends EventTarget {
   private uiRenderer: CanvasRenderer;
   private core: DepthChartCore;
+  private canvas: HTMLCanvasElement;
 
   public transform: number = 1;
   public scaleExtent: [number, number] = [0, Infinity];
@@ -78,6 +79,7 @@ export class DepthChartInteraction extends EventTarget {
     core: DepthChartCore;
   }) {
     super();
+    this.canvas = options.uiCanvas;
     this.uiRenderer = new CanvasRenderer(options.uiCanvas, options.resolution);
     this.core = options.core;
 
@@ -283,7 +285,9 @@ export class DepthChartInteraction extends EventTarget {
         core.colors.buyStroke,
         core.colors.backgroundLabel,
         core.resolution,
-        cssW
+        cssW,
+        cssH,
+        midX,
       );
     }
 
@@ -350,7 +354,9 @@ export class DepthChartInteraction extends EventTarget {
         core.colors.sellStroke,
         core.colors.backgroundLabel,
         core.resolution,
-        cssW
+        cssW,
+        cssH,
+        midX,
       );
     }
   }
@@ -451,7 +457,9 @@ export class DepthChartInteraction extends EventTarget {
     canvas.addEventListener("touchend", this._onTouchEnd);
   }
 
-  unbindEvents(canvas: HTMLCanvasElement): void {
+  unbindEvents(canvas: HTMLCanvasElement | null | undefined = this.canvas): void {
+    if (!canvas) return;
+
     canvas.removeEventListener("pointerenter", this._onPointerEnter);
     canvas.removeEventListener("pointermove", this._onPointerMove);
     canvas.removeEventListener("pointerleave", this._onPointerLeave);
@@ -508,6 +516,7 @@ export class DepthChartInteraction extends EventTarget {
 
   private _onWheel = (e: WheelEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (this.wheelTimer !== null) clearTimeout(this.wheelTimer);
     else this.dispatchEvent(new CustomEvent("zoomstart"));
 
@@ -531,6 +540,7 @@ export class DepthChartInteraction extends EventTarget {
   }
 
   private _onTouchStart = (e: TouchEvent) => {
+    e.preventDefault();
     e.stopImmediatePropagation();
     const canvas = e.target as HTMLCanvasElement;
     let started = false;
@@ -587,6 +597,7 @@ export class DepthChartInteraction extends EventTarget {
 
   destroy(): void {
     if (this.wheelTimer !== null) clearTimeout(this.wheelTimer);
+    this.unbindEvents();
   }
 }
 

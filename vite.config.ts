@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const libraryEntry = new URL("./src/index.ts", import.meta.url).pathname;
+const clientDirectiveBanner = '"use client";';
 
 export default defineConfig(({ command, mode }) => {
   const isDemoBuild = command === "build" && mode === "demo";
@@ -36,6 +37,9 @@ export default defineConfig(({ command, mode }) => {
       },
       rollupOptions: {
         external: ["react", "react-dom", "react/jsx-runtime"],
+        output: {
+          banner: clientDirectiveBanner,
+        },
       },
       sourcemap: false,
     },

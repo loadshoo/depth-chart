@@ -206,9 +206,6 @@ export function drawLabel(
   ctx.restore();
 }
 
-/**
- * 绘制带有边框和圆角的两行Tooltip卡片，展示当前价格和价差幅度
- */
 export function drawHoverTooltip(
   ctx: CanvasRenderingContext2D,
   priceLabel: string,
@@ -220,6 +217,8 @@ export function drawHoverTooltip(
   bgColor: number,
   resolution: number,
   cssWidth: number,
+  cssHeight: number,
+  midlineX: number,
 ): void {
   ctx.save();
   ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
@@ -236,14 +235,24 @@ export function drawHoverTooltip(
   const lineSpacing = 4 * resolution;
   const rh = FONT_SIZE * 2 + lineSpacing + padY * 2;
   const rw = tw + padX * 2;
+  const gap = 12 * resolution;
 
   // 定位逻辑，买单显示在准星右侧，卖单显示在准星左侧
-  let rx = side === "buy" ? x + 12 * resolution : x - rw - 12 * resolution;
-  const ry = y - rh / 2;
+  const preferredX = side === "buy" ? x + gap : x - rw - gap;
+  const alternateX = side === "buy" ? x - rw - gap : x + gap;
 
-  // 边界保护
+  const crossesMidline =
+    side === "buy"
+      ? preferredX + rw > midlineX
+      : preferredX < midlineX;
+
+  let rx = crossesMidline ? alternateX : preferredX;
+  let ry = y - rh / 2;
+
   if (rx < 0) rx = 0;
   if (rx + rw > cssWidth) rx = cssWidth - rw;
+  if (ry < 0) ry = 0;
+  if (ry + rh > cssHeight) ry = cssHeight - rh;
 
   // 背景
   ctx.fillStyle = numberToRgb(bgColor, 0.9);

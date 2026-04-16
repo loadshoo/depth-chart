@@ -1,6 +1,6 @@
 {
   "name": "@exchange/depth-chart",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "A standalone React depth chart component for order book visualization",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",

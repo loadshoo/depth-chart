@@ -20,6 +20,7 @@ import { cumsum, formatVolume } from "./utils";
 // → treat the extreme price level as an outlier and drop it.
 // ───────────────────────────────────────────────────────────
 const PRICE_VOLUME_RATIO_THRESHOLD = 100;
+const MIN_VISIBLE_NODES_ON_ZOOM = 20;
 
 function clamp(value: number, minValue: number, maxValue: number): number {
   return Math.max(minValue, Math.min(maxValue, value));
@@ -36,6 +37,21 @@ function getMidPrice(
   if (buyPrice !== undefined && sellPrice !== undefined)
     return mean([buyPrice, sellPrice]) as number;
   return buyPrice ?? sellPrice ?? 0;
+}
+
+function getMinHalfRangeForVisibleNodes(
+  prices: number[],
+  midPrice: number,
+  minVisibleNodes: number,
+): number {
+  if (prices.length === 0) return 0;
+
+  const sortedDistances = prices
+    .map((price) => Math.abs(price - midPrice))
+    .sort((left, right) => left - right);
+
+  const targetIndex = Math.min(minVisibleNodes, sortedDistances.length) - 1;
+  return sortedDistances[Math.max(targetIndex, 0)] ?? 0;
 }
 
 /**
@@ -281,13 +297,11 @@ export class DepthChartCore {
       this.initialSpan = 1;
     }
 
-    const bestBuyDistance = this._data.buy[0]
-      ? Math.abs(this._data.buy[0].price - midPrice)
-      : 0;
-    const bestSellDistance = this._data.sell[0]
-      ? Math.abs(this._data.sell[0].price - midPrice)
-      : 0;
-    const minVisibleHalfRange = Math.max(bestBuyDistance, bestSellDistance, 0);
+    const minVisibleHalfRange = getMinHalfRangeForVisibleNodes(
+      this.prices,
+      midPrice,
+      MIN_VISIBLE_NODES_ON_ZOOM,
+    );
 
     this.maxSpan = 1;
     this.minSpan = minVisibleHalfRange
@@ -366,7 +380,6 @@ export class DepthChartCore {
       this.plotWidth,
     );
 
-    this._midPrice = this._midPrice || midPrice;
     this._computedMidPrice = midPrice;
     this._priceExtent = priceExtent;
   }
@@ -395,6 +408,7 @@ export class DepthChartCore {
       this.colors.buyStroke,
       this.dimensions.strokeWidth / r,
       this.fillAlpha,
+      "buy",
     );
 
     drawDepthCurve(
@@ -406,6 +420,7 @@ export class DepthChartCore {
       this.colors.sellStroke,
       this.dimensions.strokeWidth / r,
       this.fillAlpha,
+      "sell",
     );
   }
 

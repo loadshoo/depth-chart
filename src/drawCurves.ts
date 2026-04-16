@@ -1,5 +1,45 @@
 import { numberToRgb } from "./utils";
 
+type DepthCurveSide = "buy" | "sell";
+
+function traceDepthCurvePath(
+  ctx: CanvasRenderingContext2D,
+  points: [number, number][],
+  baseY: number,
+): void {
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], baseY);
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const [x0, y0] = points[i];
+    const [x1] = points[i + 1];
+    ctx.lineTo(x0, y0);
+    ctx.lineTo(x1, y0);
+  }
+
+  const last = points[points.length - 1];
+  ctx.lineTo(last[0], last[1]);
+  ctx.lineTo(last[0], baseY);
+  ctx.closePath();
+}
+
+function traceDepthCurveStrokePath(
+  ctx: CanvasRenderingContext2D,
+  points: [number, number][],
+  baseY: number,
+): void {
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], baseY);
+  ctx.lineTo(points[0][0], points[0][1]);
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const [x0, y0] = points[i];
+    const [x1, y1] = points[i + 1];
+    ctx.lineTo(x1, y0);
+    ctx.lineTo(x1, y1);
+  }
+}
+
 /**
  * Draw a step-after area + stroke curve on a canvas 2D context.
  *
@@ -24,6 +64,7 @@ export function drawDepthCurve(
   strokeColor: number,
   strokeWidth: number,
   fillAlpha: number,
+  _side: DepthCurveSide,
 ): void {
   if (points.length < 2) return;
 
@@ -31,20 +72,7 @@ export function drawDepthCurve(
 
   // ── Area (step-after fill) ───────────────────────────────────────────────
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(points[0][0], baseY);
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const [x0, y0] = points[i];
-    const [x1] = points[i + 1];
-    ctx.lineTo(x0, y0);
-    ctx.lineTo(x1, y0); // step-after: horizontal before vertical
-  }
-
-  const last = points[points.length - 1];
-  ctx.lineTo(last[0], last[1]);
-  ctx.lineTo(last[0], baseY);
-  ctx.closePath();
+  traceDepthCurvePath(ctx, points, baseY);
 
   ctx.fillStyle = numberToRgb(fillColor, fillAlpha);
   ctx.fill();
@@ -52,19 +80,11 @@ export function drawDepthCurve(
 
   // ── Stroke (step-after line) ─────────────────────────────────────────────
   ctx.save();
-  ctx.beginPath();
+  traceDepthCurveStrokePath(ctx, points, baseY);
   ctx.lineWidth = strokeWidth;
   ctx.strokeStyle = numberToRgb(strokeColor, 1);
-  ctx.lineJoin = "round";
-
-  ctx.moveTo(points[0][0], points[0][1]);
-  for (let i = 0; i < points.length - 1; i++) {
-    const [x0, y0] = points[i];
-    const [x1, y1] = points[i + 1];
-    ctx.lineTo(x0, y0);
-    ctx.lineTo(x1, y0); // step-after horizontal segment
-    ctx.lineTo(x1, y1);
-  }
+  ctx.lineJoin = "miter";
+  ctx.lineCap = "butt";
 
   ctx.stroke();
   ctx.restore();

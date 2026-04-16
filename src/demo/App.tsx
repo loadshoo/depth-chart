@@ -15,7 +15,7 @@ type PairPreset = {
 };
 
 const PAIRS: PairPreset[] = [
-  { code: "BTC/USDT", midPrice: 65420, spread: 8, decimals: 2 },
+  { code: "BTCUSDT", midPrice: 65420, spread: 8, decimals: 2 },
   { code: "ETH/USDT", midPrice: 3178, spread: 0.8, decimals: 2 },
   { code: "SOL/USDT", midPrice: 186.24, spread: 0.06, decimals: 3 },
   { code: "DOGE/USDT", midPrice: 0.1821, spread: 0.0004, decimals: 4 },
@@ -94,19 +94,21 @@ export default function App() {
     [pairCode],
   );
 
-  const [midPrice, setMidPrice] = useState(pair.midPrice);
+  const [bookMidPrice, setBookMidPrice] = useState(pair.midPrice);
   const [indicativePrice, setIndicativePrice] = useState(0);
-  const [data, setData] = useState<OrderBookData>(() => makeBook(pair, levels, imbalance));
+  const [data, setData] = useState<OrderBookData>(() =>
+    makeBook({ ...pair, midPrice: pair.midPrice }, levels, imbalance),
+  );
 
   useEffect(() => {
-    setMidPrice(pair.midPrice);
-    setData(makeBook(pair, levels, imbalance));
+    setBookMidPrice(pair.midPrice);
+    setData(makeBook({ ...pair, midPrice: pair.midPrice }, levels, imbalance));
   }, [pair, levels, imbalance]);
 
   useEffect(() => {
     if (!liveMode) return;
     const timer = window.setInterval(() => {
-      setMidPrice((previous) => {
+      setBookMidPrice((previous) => {
         const delta = (Math.random() - 0.5) * pair.spread * 0.9;
         const next = Number((previous + delta).toFixed(pair.decimals));
         const livePair = { ...pair, midPrice: next };
@@ -127,8 +129,8 @@ export default function App() {
       setIndicativePrice(0);
       return;
     }
-    setIndicativePrice(Number((midPrice + pair.spread * 0.8).toFixed(pair.decimals)));
-  }, [auctionMode, midPrice, pair]);
+    setIndicativePrice(Number((bookMidPrice + pair.spread * 0.8).toFixed(pair.decimals)));
+  }, [auctionMode, bookMidPrice, pair]);
 
   const priceFormat = useCallback(
     (value: number) =>
@@ -150,7 +152,7 @@ export default function App() {
   const refreshBook = useCallback(() => {
     setData(makeBook(pair, levels, imbalance));
   }, [imbalance, levels, pair]);
-
+  console.log("Render", pair.code);
   const applyHighlight = useCallback(() => {
     const price = Number(highlightInput);
     if (!Number.isFinite(price)) return;
@@ -231,7 +233,7 @@ export default function App() {
               <input
                 type="number"
                 value={highlightInput}
-                placeholder={String(midPrice)}
+                placeholder={String(bookMidPrice)}
                 onChange={(event) => setHighlightInput(event.target.value)}
               />
               <button type="button" onClick={applyHighlight}>Apply</button>
@@ -265,7 +267,6 @@ export default function App() {
               data={data}
               theme={theme}
               pairCode={pair.code}
-              midPrice={midPrice}
               indicativePrice={indicativePrice}
               fillAlpha={fillAlpha}
               priceFormat={priceFormat}

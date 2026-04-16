@@ -52,11 +52,11 @@ export type DepthChartProps = {
   /** Format a volume number into a display string */
   volumeFormat?: (volume: number) => string;
   /**
-   * Indicative price if the auction ended now, 0 if not in auction mode.
+    * Indicative price if the auction ended now, 0 if not in auction mode.
    * When non-zero the chart enters auction mode with different tooltip style.
    */
   indicativePrice?: number;
-  /** Arithmetic average of the best bid price and best offer price. */
+    /** Optional mid-price override. Omit it to derive the midpoint from incoming best bid / best ask data. */
   midPrice?: number;
   /** Override the default text to display when there is not enough data. */
   notEnoughDataText?: React.ReactNode;

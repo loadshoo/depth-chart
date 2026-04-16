@@ -1,3 +1,5 @@
+"use client";
+
 import {
   forwardRef,
   useEffect,
@@ -98,14 +100,20 @@ export const DepthChart = forwardRef<DepthChartHandle, DepthChartProps>(
 
     // ── initialise ─────────────────────────────────────────────────────────
     useEffect(() => {
+      const styleElement = styleRef.current;
+      const contentsCanvas = contentsRef.current;
+      const uiCanvas = uiRef.current;
+
+      if (!styleElement || !contentsCanvas || !uiCanvas) return;
+
       const resolution = window.devicePixelRatio || 1;
       const colors = colorsConfig
         ? colorConfigToColors(colorsConfig, DEFAULT_COLORS)
-        : getColors(styleRef.current);
-      const dimensions = strokeWidth ? { strokeWidth } : getDimensions(styleRef.current);
+        : getColors(styleElement);
+      const dimensions = strokeWidth ? { strokeWidth } : getDimensions(styleElement);
 
       const core = new DepthChartCore({
-        contentsCanvas: contentsRef.current,
+        contentsCanvas,
         resolution,
         colors,
         dimensions,
@@ -115,7 +123,7 @@ export const DepthChart = forwardRef<DepthChartHandle, DepthChartProps>(
       });
 
       const interaction = new DepthChartInteraction({
-        uiCanvas: uiRef.current,
+        uiCanvas,
         resolution,
         core,
       });
@@ -140,9 +148,9 @@ export const DepthChart = forwardRef<DepthChartHandle, DepthChartProps>(
       interactionRef.current = interaction;
 
       return () => {
+        interaction.unbindEvents(uiCanvas);
         core.destroy();
         interaction.destroy();
-        interaction.unbindEvents(uiRef.current);
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
