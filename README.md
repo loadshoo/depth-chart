@@ -1,4 +1,4 @@
-# depth-chart
+# @exchange/depth-chart
 
 一个基于 Canvas 的 React 深度图组件，用于展示订单簿买卖盘深度，适合交易终端、行情面板和本地交互调试场景。
 
@@ -14,7 +14,7 @@
 ## 安装
 
 ```bash
-npm install depth-chart
+npm install @exchange/depth-chart
 ```
 
 项目依赖以下 peer dependencies：
@@ -25,8 +25,9 @@ npm install depth-chart
 ## 快速开始
 
 ```tsx
-import { DepthChart } from "depth-chart";
-import type { OrderBookData } from "depth-chart";
+import "@exchange/depth-chart/style.css";
+import { DepthChart } from "@exchange/depth-chart";
+import type { OrderBookData } from "@exchange/depth-chart";
 
 const data: OrderBookData = {
   buy: [
@@ -49,6 +50,8 @@ export default function App() {
   );
 }
 ```
+
+如果你的构建链不会自动处理库样式，请显式引入 `@exchange/depth-chart/style.css`。
 
 ## API
 
@@ -89,8 +92,8 @@ interface DepthChartHandle {
 
 ```tsx
 import { useRef } from "react";
-import { DepthChart } from "depth-chart";
-import type { DepthChartHandle } from "depth-chart";
+import { DepthChart } from "@exchange/depth-chart";
+import type { DepthChartHandle } from "@exchange/depth-chart";
 
 function Example() {
   const ref = useRef<DepthChartHandle>(null);

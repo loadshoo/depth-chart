@@ -165,32 +165,10 @@ export default function App() {
     <div className={`demo-shell theme-${theme}`}>
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
-
-      <header className="hero">
-        <div>
-          <p className="eyebrow">Depth Chart Debug Console</p>
-          <h1>为库组件准备的一块实时盘口实验台</h1>
-        </div>
-        <div className="hero-stats">
-          <div>
-            <span>Pair</span>
-            <strong>{pair.code}</strong>
-          </div>
-          <div>
-            <span>Mid</span>
-            <strong>{priceFormat(midPrice)}</strong>
-          </div>
-          <div>
-            <span>Mode</span>
-            <strong>{liveMode ? "Live" : "Static"}</strong>
-          </div>
-        </div>
-      </header>
-
       <section className="control-panel">
         <div className="panel-grid">
           <label>
-            <span>交易对</span>
+            <span>Pair</span>
             <select value={pairCode} onChange={(event) => setPairCode(event.target.value)}>
               {PAIRS.map((item) => (
                 <option key={item.code} value={item.code}>
@@ -201,7 +179,7 @@ export default function App() {
           </label>
 
           <label>
-            <span>配色</span>
+            <span>Palette</span>
             <select value={preset} onChange={(event) => setPreset(event.target.value)}>
               {Object.keys(COLOR_PRESETS).map((item) => (
                 <option key={item} value={item}>
@@ -212,7 +190,7 @@ export default function App() {
           </label>
 
           <label>
-            <span>档位数量</span>
+            <span>Levels</span>
             <input
               type="range"
               min="10"
@@ -224,7 +202,7 @@ export default function App() {
           </label>
 
           <label>
-            <span>买卖倾斜</span>
+            <span>Order Imbalance</span>
             <input
               type="range"
               min="20"
@@ -232,11 +210,11 @@ export default function App() {
               value={imbalance}
               onChange={(event) => setImbalance(Number(event.target.value))}
             />
-            <b>{imbalance}% buy</b>
+            <b>{imbalance}% bid bias</b>
           </label>
 
           <label>
-            <span>填充强度</span>
+            <span>Fill Intensity</span>
             <input
               type="range"
               min="8"
@@ -248,7 +226,7 @@ export default function App() {
           </label>
 
           <label>
-            <span>高亮价格</span>
+            <span>Highlight Price</span>
             <div className="inline-actions">
               <input
                 type="number"
@@ -256,8 +234,8 @@ export default function App() {
                 placeholder={String(midPrice)}
                 onChange={(event) => setHighlightInput(event.target.value)}
               />
-              <button type="button" onClick={applyHighlight}>应用</button>
-              <button type="button" className="ghost" onClick={clearHighlight}>清除</button>
+              <button type="button" onClick={applyHighlight}>Apply</button>
+              <button type="button" className="ghost" onClick={clearHighlight}>Clear</button>
             </div>
           </label>
         </div>
@@ -266,12 +244,12 @@ export default function App() {
           <button type="button" className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>Dark</button>
           <button type="button" className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>Light</button>
           <button type="button" className={liveMode ? "active" : ""} onClick={() => setLiveMode((value) => !value)}>
-            {liveMode ? "停止实时" : "开启实时"}
+            {liveMode ? "Stop Live" : "Start Live"}
           </button>
           <button type="button" className={auctionMode ? "active warning" : ""} onClick={() => setAuctionMode((value) => !value)}>
-            {auctionMode ? "关闭竞价" : "开启竞价"}
+            {auctionMode ? "Disable Auction" : "Enable Auction"}
           </button>
-          <button type="button" onClick={refreshBook}>刷新样本</button>
+          <button type="button" onClick={refreshBook}>Refresh Sample</button>
         </div>
       </section>
 
@@ -279,7 +257,7 @@ export default function App() {
         <div className="chart-card">
           <div className="card-topline">
             <span>Interactive Canvas</span>
-            <span>滚轮缩放 / hover tooltip / imperative highlight</span>
+            <span>Wheel zoom / hover tooltip / imperative highlight</span>
           </div>
           <div className="chart-stage">
             <DepthChart
@@ -293,7 +271,7 @@ export default function App() {
               priceFormat={priceFormat}
               volumeFormat={volumeFormat}
               colorsConfig={COLOR_PRESETS[preset]}
-              notEnoughDataText="调试样本不足，请提升档位数量"
+              notEnoughDataText="Not enough sample data. Increase the level count."
             />
           </div>
         </div>
@@ -309,15 +287,15 @@ export default function App() {
           </div>
           <div className="metric-card">
             <span>Indicative</span>
-            <strong>{auctionMode ? priceFormat(indicativePrice) : "off"}</strong>
+            <strong>{auctionMode ? priceFormat(indicativePrice) : "Off"}</strong>
           </div>
           <div className="notes-card">
-            <h2>调试建议</h2>
+            <h2>Debug Checklist</h2>
             <ul>
-              <li>切换 pairCode，验证缩放是否重置。</li>
-              <li>打开实时模式，观察曲线和 tooltip 是否稳定。</li>
-              <li>开启竞价模式，检查 indicativePrice 的交互路径。</li>
-              <li>用 imperative API 手动高亮价格点。</li>
+              <li>Switch pairCode and confirm the zoom state resets.</li>
+              <li>Enable live mode and watch curve and tooltip stability.</li>
+              <li>Turn on auction mode and verify the indicativePrice flow.</li>
+              <li>Use the imperative API to highlight a price manually.</li>
             </ul>
           </div>
         </aside>

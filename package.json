@@ -1,15 +1,34 @@
 {
-  "name": "depth-chart",
+  "name": "@exchange/depth-chart",
   "version": "1.0.0",
   "description": "A standalone React depth chart component for order book visualization",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
   "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    },
+    "./style.css": "./dist/style.css"
+  },
   "files": [
     "dist"
   ],
   "keywords": ["depth-chart", "orderbook", "react", "canvas", "trading"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/loadshoo/depth-chart.git"
+  },
+  "homepage": "https://github.com/loadshoo/depth-chart",
+  "bugs": {
+    "url": "https://github.com/loadshoo/depth-chart/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "react": ">=17.0.0",
     "react-dom": ">=17.0.0"
@@ -39,6 +58,7 @@
     "build:types": "tsc -p tsconfig.build.json",
     "dev": "vite build --watch",
     "demo": "vite",
-    "demo:build": "vite build --mode demo"
+    "demo:build": "vite build --mode demo",
+    "prepublishOnly": "npm run build"
   }
 }
