@@ -1,4 +1,3 @@
-import { bisectLeft, bisectRight, zip } from "d3-array";
 import { Delaunay } from "d3-delaunay";
 
 function clamp(value: number, lo: number, hi: number): number {
@@ -25,6 +24,30 @@ import type { DepthChartCore } from "./core";
 import { numberToRgb } from "./utils";
 
 const OVERLAY_ALPHA = 0.05;
+
+function findNearestPriceIndex(points: [number, number][], targetPrice: number): number {
+  if (points.length === 0) return -1;
+
+  const ascending = points.length < 2 || points[0][0] <= points[points.length - 1][0];
+  let low = 0;
+  let high = points.length;
+
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    const price = points[mid][0];
+    if (ascending ? price < targetPrice : price > targetPrice) low = mid + 1;
+    else high = mid;
+  }
+
+  if (low <= 0) return 0;
+  if (low >= points.length) return points.length - 1;
+
+  const previous = points[low - 1][0];
+  const current = points[low][0];
+  return Math.abs(previous - targetPrice) <= Math.abs(current - targetPrice)
+    ? low - 1
+    : low;
+}
 
 type HoverDatum = {
   index: number;
@@ -58,6 +81,7 @@ type AuctionHoverState = {
  */
 export class DepthChartInteraction extends EventTarget {
   private uiRenderer: CanvasRenderer;
+  private baseRenderer: CanvasRenderer;
   private core: DepthChartCore;
   private canvas: HTMLCanvasElement;
 
@@ -77,6 +101,10 @@ export class DepthChartInteraction extends EventTarget {
   private _indicativePrice: number = 0;
   private auctionDelaunay: Delaunay<[number, number]> | null = null;
   private auctionPoints: [number, number][] = [];
+  private baseVersion: number = -1;
+  private auctionVersion: number = -1;
+  private pointerFrameId: number | null = null;
+  private pendingPointer: { x: number; y: number } | null = null;
 
   constructor(options: {
     uiCanvas: HTMLCanvasElement;
@@ -86,6 +114,7 @@ export class DepthChartInteraction extends EventTarget {
     super();
     this.canvas = options.uiCanvas;
     this.uiRenderer = new CanvasRenderer(options.uiCanvas, options.resolution);
+    this.baseRenderer = new CanvasRenderer(document.createElement("canvas"), options.resolution);
     this.core = options.core;
 
     this._bindEvents(options.uiCanvas);
@@ -93,6 +122,8 @@ export class DepthChartInteraction extends EventTarget {
 
   resize(cssWidth: number, cssHeight: number): void {
     this.uiRenderer.resize(cssWidth, cssHeight);
+    this.baseRenderer.resize(cssWidth, cssHeight);
+    this.baseVersion = -1;
   }
 
   set indicativePrice(p: number) {
@@ -112,40 +143,15 @@ export class DepthChartInteraction extends EventTarget {
 
     if (core.prices.length < 2) return;
 
-    // Build Delaunay for auction mode
+    this._renderStaticLayer(cssW, cssH, r);
+
     if (this._indicativePrice && core.prices.length > 1) {
-      const pts = zip(core.prices, core.volumes)
-        .map(([price, volume]) => [
-          core.priceScale(price),
-          core.volumeScale(volume),
-        ] as [number, number]);
-      this.auctionPoints = pts;
-      this.auctionDelaunay = Delaunay.from(pts);
+      this._rebuildAuctionCacheIfNeeded();
     } else {
       this.auctionPoints = [];
       this.auctionDelaunay = null;
+      this.auctionVersion = -1;
     }
-
-    // Axes
-    drawHorizontalAxis(
-      ctx,
-      core.priceScale,
-      core._priceExtent,
-      cssW,
-      cssH,
-      core.colors,
-    );
-
-    drawVerticalAxis(
-      ctx,
-      core.volumeScale,
-      core.plotWidth,
-      cssH,
-      core.colors,
-      r,
-    );
-
-    drawMidPriceLine(ctx, core.plotWidth / 2, cssH);
 
     if (this.lastPointer) {
       this._processHoverX(this.lastPointer.x, this.lastPointer.y);
@@ -172,7 +178,61 @@ export class DepthChartInteraction extends EventTarget {
     this.hoverState = null;
     this.auctionHover = null;
     this.lastPointer = null;
+    this.pendingPointer = null;
     this.render();
+  }
+
+  private _renderStaticLayer(cssW: number, cssH: number, resolution: number): void {
+    const core = this.core;
+
+    if (this.baseVersion !== core.scaleVersion) {
+      const ctx = this.baseRenderer.ctx;
+      this.baseRenderer.clear();
+
+      drawHorizontalAxis(
+        ctx,
+        core.priceScale,
+        core._priceExtent,
+        cssW,
+        cssH,
+        core.colors,
+      );
+
+      drawVerticalAxis(
+        ctx,
+        core.volumeScale,
+        core.plotWidth,
+        cssH,
+        core.colors,
+        resolution,
+      );
+
+      drawMidPriceLine(ctx, core.plotWidth / 2, cssH);
+      this.baseVersion = core.scaleVersion;
+    }
+
+    const ctx = this.uiRenderer.ctx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.baseRenderer.canvas, 0, 0);
+    ctx.restore();
+  }
+
+  private _rebuildAuctionCacheIfNeeded(): void {
+    const core = this.core;
+    if (this.auctionVersion === core.scaleVersion) return;
+
+    const points = new Array<[number, number]>(core.prices.length);
+    for (let index = 0; index < core.prices.length; index += 1) {
+      points[index] = [
+        core.priceScale(core.prices[index]),
+        core.volumeScale(core.volumes[index]),
+      ];
+    }
+
+    this.auctionPoints = points;
+    this.auctionDelaunay = Delaunay.from(points);
+    this.auctionVersion = core.scaleVersion;
   }
 
   // ── hover rendering helpers ───────────────────────────────────────────────
@@ -414,16 +474,7 @@ export class DepthChartInteraction extends EventTarget {
   ): HoverDatum | null {
     if (points.length === 0) return null;
 
-    let bestIndex = 0;
-    let bestDistance = Infinity;
-
-    for (let index = 0; index < points.length; index += 1) {
-      const distance = Math.abs(points[index][0] - targetPrice);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestIndex = index;
-      }
-    }
+    const bestIndex = findNearestPriceIndex(points, targetPrice);
 
     const [price, volume] = points[bestIndex];
     return {
@@ -473,33 +524,48 @@ export class DepthChartInteraction extends EventTarget {
   private _onPointerMove = (e: PointerEvent) => {
     if ("ontouchstart" in self) return; // let touch events handle it on touch devices
     const [x, y] = this._cssXY(e);
-    this.lastPointer = { x, y };
-    this._processHoverX(x, y);
-    this.render();
+    this._schedulePointerRender(x, y);
   };
 
   private _onPointerEnter = (e: PointerEvent) => {
     if ("ontouchstart" in self) return;
     const [x, y] = this._cssXY(e);
-    this.lastPointer = { x, y };
-    this._processHoverX(x, y);
-    this.render();
+    this._schedulePointerRender(x, y);
   };
 
   private _onPointerLeave = () => {
+    if (this.pointerFrameId !== null) {
+      cancelAnimationFrame(this.pointerFrameId);
+      this.pointerFrameId = null;
+    }
     this.hoverState = null;
     this.auctionHover = null;
     this.lastPointer = null;
+    this.pendingPointer = null;
     this.render();
   };
 
   private _onPointerDown = (e: PointerEvent) => {
     if (!("ontouchstart" in self)) return;
     const [x, y] = this._cssXY(e);
-    this.lastPointer = { x, y };
-    this._processHoverX(x, y);
-    this.render();
+    this._schedulePointerRender(x, y);
   };
+
+  private _schedulePointerRender(x: number, y: number): void {
+    this.pendingPointer = { x, y };
+    if (this.pointerFrameId !== null) return;
+
+    this.pointerFrameId = requestAnimationFrame(() => {
+      this.pointerFrameId = null;
+      if (!this.pendingPointer) return;
+
+      const nextPointer = this.pendingPointer;
+      this.pendingPointer = null;
+      this.lastPointer = nextPointer;
+      this._processHoverX(nextPointer.x, nextPointer.y);
+      this.render();
+    });
+  }
 
   private _emitZoom(k: number): void {
     this.dispatchEvent(new CustomEvent("zoom", { detail: { k } }));
@@ -588,6 +654,7 @@ export class DepthChartInteraction extends EventTarget {
 
   destroy(): void {
     if (this.wheelTimer !== null) clearTimeout(this.wheelTimer);
+    if (this.pointerFrameId !== null) cancelAnimationFrame(this.pointerFrameId);
     this.unbindEvents();
   }
 }

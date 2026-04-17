@@ -13,7 +13,7 @@ import {
 } from "./drawAxes";
 import { CanvasRenderer } from "./renderer";
 import type { Colors, Dimensions, OrderBookData } from "./types";
-import { cumsum, formatVolume } from "./utils";
+import { formatVolume } from "./utils";
 
 // ───────────────────────────────────────────────────────────
 // Ratio threshold: price-gap% / volume-fraction > THRESHOLD
@@ -24,6 +24,127 @@ const MIN_VISIBLE_NODES_ON_ZOOM = 20;
 
 function clamp(value: number, minValue: number, maxValue: number): number {
   return Math.max(minValue, Math.min(maxValue, value));
+}
+
+function lowerBound(values: number[], target: number): number {
+  let low = 0;
+  let high = values.length;
+
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (values[mid] < target) low = mid + 1;
+    else high = mid;
+  }
+
+  return low;
+}
+
+function upperBound(values: number[], target: number): number {
+  let low = 0;
+  let high = values.length;
+
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (values[mid] <= target) low = mid + 1;
+    else high = mid;
+  }
+
+  return low;
+}
+
+function getMaxDistanceFromSortedPrices(prices: number[], midPrice: number): number {
+  if (prices.length === 0) return 0;
+  return Math.max(
+    Math.abs(prices[0] - midPrice),
+    Math.abs(prices[prices.length - 1] - midPrice),
+  );
+}
+
+function getVisibleMaxVolume(
+  prices: number[],
+  volumes: number[],
+  minPrice: number,
+  maxPrice: number,
+): number {
+  const start = lowerBound(prices, minPrice);
+  const end = upperBound(prices, maxPrice);
+
+  let maxVolume = 0;
+  for (let index = start; index < end; index += 1) {
+    if (volumes[index] > maxVolume) {
+      maxVolume = volumes[index];
+    }
+  }
+
+  return maxVolume;
+}
+
+function appendCompressedPoint(
+  points: [number, number][],
+  x: number,
+  y: number,
+): void {
+  const nextPoint: [number, number] = [x, y];
+  if (points.length === 0) {
+    points.push(nextPoint);
+    return;
+  }
+
+  const lastIndex = points.length - 1;
+  const lastPoint = points[lastIndex];
+  if (Math.round(lastPoint[0]) === Math.round(x)) {
+    points[lastIndex] = nextPoint;
+    return;
+  }
+
+  points.push(nextPoint);
+}
+
+function projectCurvePoints(options: {
+  source: [number, number][];
+  extraPoint?: [number, number];
+  priceScale: ScaleLinear<number, number>;
+  volumeScale: ScaleLinear<number, number>;
+  fallbackY: number;
+  clipRightAt?: number;
+}): [number, number][] {
+  const {
+    source,
+    extraPoint,
+    priceScale,
+    volumeScale,
+    fallbackY,
+    clipRightAt,
+  } = options;
+  const result: [number, number][] = [];
+
+  const appendPoint = (price: number, volume: number): boolean => {
+    let x = priceScale(price);
+    const scaledY = volumeScale(volume);
+    const y = Number.isFinite(scaledY) ? scaledY : fallbackY;
+
+    if (clipRightAt !== undefined && x > clipRightAt) {
+      x = clipRightAt;
+      appendCompressedPoint(result, x, y);
+      return false;
+    }
+
+    appendCompressedPoint(result, x, y);
+    return true;
+  };
+
+  for (let index = 0; index < source.length; index += 1) {
+    const [price, volume] = source[index];
+    if (!appendPoint(price, volume) && clipRightAt !== undefined) {
+      return result;
+    }
+  }
+
+  if (extraPoint) {
+    appendPoint(extraPoint[0], extraPoint[1]);
+  }
+
+  return result;
 }
 
 function getMidPrice(
@@ -46,12 +167,25 @@ function getMinHalfRangeForVisibleNodes(
 ): number {
   if (prices.length === 0) return 0;
 
-  const sortedDistances = prices
-    .map((price) => Math.abs(price - midPrice))
-    .sort((left, right) => left - right);
+  const targetCount = Math.min(minVisibleNodes, prices.length);
+  let left = lowerBound(prices, midPrice) - 1;
+  let right = left + 1;
+  let furthestDistance = 0;
 
-  const targetIndex = Math.min(minVisibleNodes, sortedDistances.length) - 1;
-  return sortedDistances[Math.max(targetIndex, 0)] ?? 0;
+  for (let count = 0; count < targetCount; count += 1) {
+    const leftDistance = left >= 0 ? Math.abs(prices[left] - midPrice) : Infinity;
+    const rightDistance = right < prices.length ? Math.abs(prices[right] - midPrice) : Infinity;
+
+    if (leftDistance <= rightDistance) {
+      furthestDistance = leftDistance;
+      left -= 1;
+    } else {
+      furthestDistance = rightDistance;
+      right += 1;
+    }
+  }
+
+  return Number.isFinite(furthestDistance) ? furthestDistance : 0;
 }
 
 /**
@@ -95,6 +229,8 @@ export class DepthChartCore {
   public initialSpan: number = 1;
   public minSpan: number = 1;
   public maxSpan: number = 1;
+  public scaleVersion: number = 0;
+  public dataVersion: number = 0;
   private maxPriceDifference: number = 0;
   private initialPriceDifference: number = 0;
 
@@ -157,29 +293,59 @@ export class DepthChartCore {
   }
 
   set data(data: OrderBookData) {
-    this._data = {
-      buy: [...data.buy].sort((a, b) => b.price - a.price),  // descending
-      sell: [...data.sell].sort((a, b) => a.price - b.price), // ascending
-    };
+    const buy = [...data.buy].sort((a, b) => b.price - a.price);
+    const sell = [...data.sell].sort((a, b) => a.price - b.price);
+
+    this._data = { buy, sell };
     this.initialPriceDifference = 0; // force re-compute on next update
+    this.dataVersion += 1;
 
-    // Cumulative volumes
-    const buyVols = cumsum(this._data.buy.map((l) => l.volume));
-    const sellVols = cumsum(this._data.sell.map((l) => l.volume));
+    this.cumulativeBuy = new Array(buy.length);
+    this.cumulativeSell = new Array(sell.length);
 
-    this.cumulativeBuy = this._data.buy.map((l, i) => [l.price, buyVols[i]]);
-    this.cumulativeSell = this._data.sell.map((l, i) => [l.price, sellVols[i]]);
+    let buyVolumeSum = 0;
+    for (let index = 0; index < buy.length; index += 1) {
+      buyVolumeSum += buy[index].volume || 0;
+      this.cumulativeBuy[index] = [buy[index].price, buyVolumeSum];
+    }
 
-    // Merged price/volume arrays sorted by price ascending
-    const merged: { price: number; vol: number }[] = [
-      ...this.cumulativeBuy.map(([p, v]) => ({ price: p, vol: v })),
-      ...this.cumulativeSell.map(([p, v]) => ({ price: p, vol: v })),
-    ].sort((a, b) => a.price - b.price);
+    let sellVolumeSum = 0;
+    for (let index = 0; index < sell.length; index += 1) {
+      sellVolumeSum += sell[index].volume || 0;
+      this.cumulativeSell[index] = [sell[index].price, sellVolumeSum];
+    }
 
-    this.prices = merged.map((x) => x.price);
-    this.volumes = merged.map((x) => x.vol);
-    this.priceLabels = this.prices.map(this.priceFormat);
-    this.volumeLabels = this.volumes.map((v) => this.volumeFormat(v));
+    const mergedLength = this.cumulativeBuy.length + this.cumulativeSell.length;
+    this.prices = new Array(mergedLength);
+    this.volumes = new Array(mergedLength);
+
+    let buyIndex = this.cumulativeBuy.length - 1;
+    let sellIndex = 0;
+    let mergedIndex = 0;
+
+    while (buyIndex >= 0 || sellIndex < this.cumulativeSell.length) {
+      const buyPoint = buyIndex >= 0 ? this.cumulativeBuy[buyIndex] : null;
+      const sellPoint = sellIndex < this.cumulativeSell.length ? this.cumulativeSell[sellIndex] : null;
+
+      if (!sellPoint || (buyPoint && buyPoint[0] <= sellPoint[0])) {
+        this.prices[mergedIndex] = buyPoint![0];
+        this.volumes[mergedIndex] = buyPoint![1];
+        buyIndex -= 1;
+      } else {
+        this.prices[mergedIndex] = sellPoint[0];
+        this.volumes[mergedIndex] = sellPoint[1];
+        sellIndex += 1;
+      }
+
+      mergedIndex += 1;
+    }
+
+    this.priceLabels = new Array(mergedLength);
+    this.volumeLabels = new Array(mergedLength);
+    for (let index = 0; index < mergedLength; index += 1) {
+      this.priceLabels[index] = this.priceFormat(this.prices[index]);
+      this.volumeLabels[index] = this.volumeFormat(this.volumes[index]);
+    }
 
     this.invalidate();
   }
@@ -242,8 +408,7 @@ export class DepthChartCore {
       this._data.sell[0]?.price,
     );
 
-    this.maxPriceDifference =
-      max(this.prices.map((p) => Math.abs(p - midPrice))) ?? 0;
+    this.maxPriceDifference = getMaxDistanceFromSortedPrices(this.prices, midPrice);
 
     if (this.maxPriceDifference <= 0) {
       this.minSpan = 1;
@@ -316,16 +481,12 @@ export class DepthChartCore {
     ];
 
     // Visible index extent for volume scale calculation
-    const visibleVolumes = this.prices
-      .map((p, i) => ({ p, v: this.volumes[i] }))
-      .filter((d) => d.p >= priceExtent[0] && d.p <= priceExtent[1])
-      .map((d) => d.v);
-
-    const effectiveVisibleVolumes = visibleVolumes.length > 0
-      ? visibleVolumes
-      : this.volumes;
-
-    const maxVol = max(effectiveVisibleVolumes) ?? 0;
+    const maxVol = getVisibleMaxVolume(
+      this.prices,
+      this.volumes,
+      priceExtent[0],
+      priceExtent[1],
+    ) || max(this.volumes) || 0;
     const volumeExtent: [number, number] = [0, 1.2 * maxVol];
 
     const cssH = this.cssHeight;
@@ -348,40 +509,39 @@ export class DepthChartCore {
       .domain(priceExtent)
       .range([0, this.plotWidth]);
 
-    // Extend curve points to symmetric extremes so chart looks symmetric
-    const buyCurvePoints: [number, number][] = [...this.cumulativeBuy];
-    const sellCurvePoints: [number, number][] = [...this.cumulativeSell];
-
-    if (buyCurvePoints.length > 0) {
-      buyCurvePoints.push([
-        midPrice - this.maxPriceDifference,
-        buyCurvePoints.at(-1)![1],
-      ]);
-    }
-    if (sellCurvePoints.length > 0) {
-      sellCurvePoints.push([
-        midPrice + this.maxPriceDifference,
-        sellCurvePoints.at(-1)![1],
-      ]);
-    }
-
-    // Convert data coords to canvas CSS coords
     const allVolumeZero = ticks.every((t) => t === 0);
-    this._buyCssPoints = buyCurvePoints.map(([p, v]) => [
-      this.priceScale(p),
-      allVolumeZero ? cssH - AXIS_HEIGHT : this.volumeScale(v),
-    ] as [number, number]);
+    const fallbackY = cssH - AXIS_HEIGHT;
+    const volumeScale = allVolumeZero
+      ? scaleLinear<number, number>().domain([0, 1]).range([fallbackY, fallbackY])
+      : this.volumeScale;
+
+    this._buyCssPoints = projectCurvePoints({
+      source: this.cumulativeBuy,
+      extraPoint: this.cumulativeBuy.length > 0
+        ? [midPrice - this.maxPriceDifference, this.cumulativeBuy[this.cumulativeBuy.length - 1][1]]
+        : undefined,
+      priceScale: this.priceScale,
+      volumeScale,
+      fallbackY,
+    });
 
     this._sellCssPoints = clipPointsRight(
-      sellCurvePoints.map(([p, v]) => [
-        this.priceScale(p),
-        allVolumeZero ? cssH - AXIS_HEIGHT : this.volumeScale(v),
-      ] as [number, number]),
+      projectCurvePoints({
+        source: this.cumulativeSell,
+        extraPoint: this.cumulativeSell.length > 0
+          ? [midPrice + this.maxPriceDifference, this.cumulativeSell[this.cumulativeSell.length - 1][1]]
+          : undefined,
+        priceScale: this.priceScale,
+        volumeScale,
+        fallbackY,
+        clipRightAt: this.plotWidth,
+      }),
       this.plotWidth,
     );
 
     this._computedMidPrice = midPrice;
     this._priceExtent = priceExtent;
+    this.scaleVersion += 1;
   }
 
   // Computed CSS-coord curve points (used by both contents and interaction layers)

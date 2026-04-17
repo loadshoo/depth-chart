@@ -1,16 +1,30 @@
-import Decimal from "decimal.js";
 import type { ColorConfig, Colors } from "./types";
+
+const COMPACT_VOLUME_FORMATTER = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
+});
 
 /**
  * Cumulative sum of a numeric array.
- * Uses Decimal.js to avoid floating-point drift.
+ * Uses Kahan summation to reduce floating-point drift without Decimal.js overhead.
  */
 export function cumsum(values: number[]): number[] {
+  const result = new Array<number>(values.length);
   let sum = 0;
-  return values.map((v) => {
-    sum = Decimal.add(sum, +v || 0).toNumber();
-    return sum;
-  });
+  let compensation = 0;
+
+  for (let index = 0; index < values.length; index += 1) {
+    const value = +values[index] || 0;
+    const adjusted = value - compensation;
+    const nextSum = sum + adjusted;
+    compensation = nextSum - sum - adjusted;
+    sum = nextSum;
+    result[index] = sum;
+  }
+
+  return result;
 }
 
 /**
@@ -86,11 +100,7 @@ export function numberToRgb(n: number, alpha = 1): string {
  */
 export function formatVolume(n: number): string {
   if (n >= 1_000) {
-    return Intl.NumberFormat("en-US", {
-      notation: "compact",
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2,
-    }).format(n);
+    return COMPACT_VOLUME_FORMATTER.format(n);
   }
   const prec = getDecimalPlaces(n);
   return n.toLocaleString("en-US", {
