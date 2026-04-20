@@ -1,6 +1,6 @@
 {
   "name": "exchange-depth-chart",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A standalone React depth chart component for order book visualization",
   "main": "./dist/index.js",
   "module": "./dist/index.esm.js",
@@ -16,7 +16,13 @@
   "files": [
     "dist"
   ],
-  "keywords": ["depth-chart", "orderbook", "react", "canvas", "trading"],
+  "keywords": [
+    "depth-chart",
+    "orderbook",
+    "react",
+    "canvas",
+    "trading"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -34,13 +40,13 @@
     "react-dom": ">=17.0.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
     "@types/d3-array": "^3.2.1",
     "@types/d3-delaunay": "^6.0.4",
     "@types/d3-scale": "^4.0.9",
     "@types/node": "^24.5.2",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.3.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.1.0",
@@ -50,12 +56,11 @@
     "d3-array": "^3.2.0",
     "d3-delaunay": "^6.0.2",
     "d3-scale": "^4.0.2",
-    "d3-shape": "^3.2.0",
-    "decimal.js": "^10.4.3"
+    "d3-shape": "^3.2.0"
   },
   "scripts": {
-    "build": "vite build && tsc -p tsconfig.build.json",
-    "build:types": "tsc -p tsconfig.build.json",
+    "build": "vite build && tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "build:types": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
     "dev": "vite build --watch",
     "demo": "vite",
     "demo:build": "vite build --mode demo",
